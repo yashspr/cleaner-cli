@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"sort"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -138,6 +138,7 @@ type historyEntry struct {
 }
 
 type scanResultMsg struct {
+	id     int64
 	path   string
 	result scanResult
 	err    error
@@ -184,11 +185,14 @@ const (
 )
 
 type overviewSizeMsg struct {
-	Path  string
-	Index int
-	Size  int64
-	Err   error
+	publication *scanPublication
+	Path        string
+	Index       int
+	Size        int64
+	Err         error
 }
+
+type initializeMsg struct{}
 
 type tickMsg time.Time
 
@@ -198,6 +202,7 @@ type deleteProgressMsg struct {
 	count        int64
 	path         string
 	removedPaths []string
+	logWarning   string // set when the audit log could not be written
 }
 
 type model struct {
@@ -213,6 +218,7 @@ type model struct {
 	totalSize           int64
 	scanning            bool
 	spinner             int
+	tickRunning         bool // one tickCmd loop is already re-arming itself
 	filesScanned        *int64
 	dirsScanned         *int64
 	bytesScanned        *int64
@@ -228,7 +234,8 @@ type model struct {
 	largeOffset         int
 	overviewSizeCache   map[string]int64
 	overviewScanning    bool
-	overviewScanningSet map[string]bool // Track which paths are currently being scanned
+	overviewScanningSet map[string]*scanPublication // Track active measurements by identity
+	cachePublications   map[string]*scanPublication
 	width               int             // Terminal width
 	height              int             // Terminal height
 	multiSelected       map[string]bool // Track multi-selected items by path (safer than index)
@@ -258,6 +265,8 @@ type model struct {
 	liveScanCancel      context.CancelFunc
 	liveScanEvents      <-chan liveScanEventMsg
 	liveScanningPaths   map[string]bool
+	liveEntryIndex      map[string]int
+	liveEntriesDirty    bool
 	autoSortLiveEntries bool
 	liveSortMode        liveSortMode
 }
@@ -316,10 +325,7 @@ func (m *model) hydrateOverviewEntries() {
 }
 
 func (m *model) sortOverviewEntriesBySize() {
-	// Stable sort by size.
-	sort.SliceStable(m.entries, func(i, j int) bool {
-		return m.entries[i].Size > m.entries[j].Size
-	})
+	sortDirEntriesBySize(m.entries)
 }
 
 func (m *model) getScanProgress() (files, dirs, bytes int64) {
@@ -385,6 +391,27 @@ func (m *model) clampLargeSelection() {
 	}
 }
 
+// selectedPathSizes returns the sizes the view showed for paths, which is
+// what the audit log records for each Trash move.
+func (m model) selectedPathSizes(paths []string) map[string]int64 {
+	sizes := make(map[string]int64, len(paths))
+	wanted := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		wanted[path] = true
+	}
+	for _, entry := range m.entriesAll {
+		if wanted[entry.Path] && entry.Size > 0 {
+			sizes[entry.Path] = entry.Size
+		}
+	}
+	for _, file := range m.largeFilesAll {
+		if wanted[file.Path] && file.Size > 0 {
+			sizes[file.Path] = file.Size
+		}
+	}
+	return sizes
+}
+
 func (m *model) removePathFromView(path string) {
 	if path == "" {
 		return
@@ -405,6 +432,7 @@ func (m *model) removePathFromView(path string) {
 	// shift the shared array twice and corrupt it; rebuilding via the filters
 	// keeps the view, the query, and the selection consistent.
 	m.entriesAll = removeByPath(m.entriesAll, path, dirEntryPath)
+	m.liveEntryIndex = nil
 	m.largeFilesAll = removeByPath(m.largeFilesAll, path, fileEntryPath)
 
 	if removedSize > 0 {
@@ -417,6 +445,39 @@ func (m *model) removePathFromView(path string) {
 
 	m.applyEntryFilter()
 	m.applyLargeFilter()
+}
+
+// pathIsWithin reports whether path is root or lies below it. A bare
+// root+"/" prefix never matches for the overview, whose path is "/": the
+// prefix becomes "//".
+func pathIsWithin(path, root string) bool {
+	if path == root {
+		return true
+	}
+	prefix := root
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	return strings.HasPrefix(path, prefix)
+}
+
+// pathTouchesRemoved reports whether a delete changed what path measures: it
+// contains a removed path, or was itself inside one.
+func pathTouchesRemoved(path string, removedPaths []string) bool {
+	return slices.ContainsFunc(removedPaths, func(removed string) bool {
+		return pathIsWithin(removed, path) || pathIsWithin(path, removed)
+	})
+}
+
+// markRemovedOverviewRowsPending resets the overview rows a delete changed to
+// pending so they are measured again instead of restored.
+func markRemovedOverviewRowsPending(entries []dirEntry, removedPaths []string) {
+	for i := range entries {
+		if pathTouchesRemoved(entries[i].Path, removedPaths) {
+			entries[i].Size = -1
+			entries[i].State = scanComplete
+		}
+	}
 }
 
 func fileEntryName(f fileEntry) string { return f.Name }

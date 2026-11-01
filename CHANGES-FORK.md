@@ -5,7 +5,7 @@ licensed under GPL-3.0 (see [LICENSE](LICENSE)). It is a command-line engine mea
 inside a Mac app and driven as a separate program. It is not affiliated with or endorsed by Mole
 or its author.
 
-Upstream base: `tw93/mole` v1.56.0 (`50790e8a`, 2026-09-27).
+Upstream base: `tw93/mole` V1.67.0 + 36 commits (`f72e97f7`, merged 2026-11-01). Before that, v1.56.0 (`50790e8a`).
 
 ## Modifications
 
@@ -75,7 +75,8 @@ Rule: **fork logic lives in fork-only files; shared files only get hook lines.**
 | `lib/core/sudo.sh` | 3 lines at the `osascript` dialog | title from `PRISTINE_DIALOG_TITLE` (sanitized; default "Mole", `pristine` sets "cleaner-cli") |
 | `lib/core/base.sh` | 1 `source .../lib/pristine/paths.sh` line | load the data-dir overrides for every command |
 | `lib/core/app_protection.sh` | 1 line in `should_protect_path` | data dirs and `PRISTINE_PROTECT_PATHS` are never cleaned |
-| `mole`, `bin/*.sh`, `lib/*/*.sh`, `cmd/analyze/cache.go`, `cmd/status/prefs.go` | each hard-coded `~/.config/mole`, `~/.cache/mole`, `~/Library/Logs/mole` | `${PRISTINE_<KIND>_DIR:-<upstream path>}`; `tests/pristine_data_dirs.bats` fails if a merge adds an unrouted one |
+| `lib/uninstall/batch.sh` | 1 line in `_batch_preview_and_confirm` | `--json` with `--yes` or `--dry-run` confirms the batch; upstream otherwise needs a terminal |
+| `mole`, `bin/*.sh`, `lib/*/*.sh`, `cmd/analyze/cache.go`, `cmd/analyze/oplog.go`, `cmd/status/prefs.go` | each hard-coded `~/.config/mole`, `~/.cache/mole`, `~/Library/Logs/mole` | `${PRISTINE_<KIND>_DIR:-<upstream path>}`; `tests/pristine_data_dirs.bats` fails if a merge adds an unrouted one |
 | `.gitignore` | `/dist/` | ignore bundle output |
 
 `bin/uninstall.sh` sources its fork file relative to `BASH_SOURCE`, not `SCRIPT_DIR`: the
@@ -87,10 +88,10 @@ upstream libraries it loads first reassign `SCRIPT_DIR`.
 |---|---|---|
 | all | `log_operation`, `ensure_sudo_session` (only under `--json` without `--admin`), `show_*_help` | `WHITELIST_PATTERNS`, `adopt_sudo_session` |
 | clean | `start_cleanup`, `perform_cleanup`, `start_section` | `emit_deduplicated_dry_run_ledger`, `CLEAN_PREVIEW_LEDGER_FILE`, `CURRENT_SECTION`, `DRY_RUN`, `SYSTEM_CLEAN`, `total_size_cleaned`, `files_cleaned`, `total_items`, `DRY_RUN_TOTAL_PARTIAL`, `MOLE_CLEAN_SIZING_TIMEOUTS` |
-| installer | `perform_installers`, `show_installer_menu` (replaced), `record_installer_delete_failure` | `INSTALLER_PATHS`, `INSTALLER_SIZES`, `INSTALLER_SOURCES`, `MOLE_SELECTION_RESULT`, `total_deleted`, `total_size_freed_kb`, `total_delete_failed`, `INSTALLER_EXIT_*`; relies on the confirmation treating EOF as Enter |
+| installer | `perform_installers`, `show_installer_menu` (replaced), `record_installer_delete_failure` | `INSTALLER_PATHS`, `INSTALLER_SIZES`, `INSTALLER_SOURCES`, `MOLE_SELECTION_RESULT`, `total_deleted`, `total_size_freed_kb`, `total_delete_failed`, `INSTALLER_EXIT_*`; `--json` feeds one newline on stdin as the final confirmation's Enter (upstream now reads EOF there as cancel) |
 | purge | `start_purge`, `perform_purge`, `mole_purge_is_cloud_synced_path`, `log_operation_session_end`, `is_path_whitelisted` (`--only-from`) | per-item locals of `clean_project_artifacts`: `item`, `size_kb`, `size_unknown`, `is_recent`, `activity_state`, `project_root`, `artifact_type`; `PURGE_SEARCH_PATHS`, `PURGE_RUN_OUTCOME`, `PURGE_UNKNOWN_SIZE_COUNT` |
 | optimize | `execute_optimization`, `optimize_outcomes_reset`, `show_system_health`, `show_optimization_summary` | `MOLE_OPTIMIZE_ACTIONS`, `MOLE_OPTIMIZE_HEALTH_NAMES`, `MOLE_OPTIMIZE_RESULT_*`, `MOLE_OPTIMIZE_OUTCOME_*`, `MOLE_OPTIMIZE_SUDO_AVAILABLE`, `OPTIMIZE_*` stats |
-| uninstall | `uninstall_list_apps` and `match_apps_by_name` (replaced), `_batch_scan_app_details`, `_batch_render_summary`, `_mole_delete_log` | `apps_data`, `selected_apps`, `scan_applications`, `load_applications`; batch locals `app_details` (field order), `blocked_apps`, `manual_removal_apps`, `success_count`, `failed_count`, `total_size_freed`, `failed_items`, `running_at_uninstall_apps`; relies on the batch confirmation treating EOF as Enter |
+| uninstall | `uninstall_list_apps` and `match_apps_by_name` (replaced), `_batch_scan_app_details`, `_batch_render_summary`, `_mole_delete_log` | `apps_data`, `selected_apps`, `scan_applications`, `load_applications`; batch locals `app_details` (field order), `blocked_apps`, `manual_removal_apps`, `success_count`, `failed_count`, `total_size_freed`, `failed_items`, `running_at_uninstall_apps`; the batch confirmation in `_batch_preview_and_confirm` accepts only a terminal, so one hook line skips it when `PRISTINE_UNINSTALL_CONFIRMED` is set (`--json` with `--yes` or `--dry-run`) |
 
 ### Branches
 

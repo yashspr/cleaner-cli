@@ -25,6 +25,7 @@ printf '%s\n' "\$*" >> "$TRACE"
 exit 0
 STUB
     # sudo: no cached session; -k (clear cache) succeeds like the real one.
+    # shellcheck disable=SC2016  # $1 belongs to the stub script, not this shell.
     printf '#!/bin/bash\n[[ "$1" == "-k" ]] && exit 0\nexit 1\n' > "$STUB_DIR/sudo"
     chmod +x "$STUB_DIR/osascript" "$STUB_DIR/sudo"
 }
@@ -32,6 +33,7 @@ STUB
 # Run request_sudo_access in a new session, so /dev/tty passes the -r/-w mode
 # check but cannot be opened: the state of an app-spawned process.
 run_detached_request() {
+    # shellcheck disable=SC2016  # The Python program is literal; nothing expands here.
     run env -u MOLE_TEST_MODE -u MOLE_TEST_NO_AUTH PATH="$STUB_DIR:$PATH" \
         PROJECT_ROOT="$PROJECT_ROOT" PRISTINE_DIALOG_TITLE="$1" \
         python3 -c '

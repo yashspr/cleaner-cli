@@ -9,8 +9,9 @@
 # Selection replaces the interactive menu (show_installer_menu): every
 # candidate is selected unless excluded, or only the listed ones. Removal then
 # runs upstream's plan/confirm/execute path unchanged, including the
-# identity and size re-check before each delete. stdin is /dev/null under
-# --json, and the upstream confirmation treats EOF as Enter.
+# identity and size re-check before each delete. Under --json, stdin holds a
+# single newline: the Enter that upstream's final confirmation needs (EOF
+# there is cancel).
 
 _PRISTINE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/pristine/common.sh
@@ -32,6 +33,7 @@ pristine_installer_main_hook() {
     [[ "$PRISTINE_JSON" == "true" ]] || return 0
 
     pristine_json_begin
+    exec 0<<< "" # Enter for the final confirmation; read after that gets EOF
     pristine_install_operation_events ""
 
     # shellcheck disable=SC2329  # Called by upstream code under its original name.

@@ -15,13 +15,18 @@ teardown_file() {
     mole_test_teardown_home
 }
 
+# A rebuildable npm project: upstream offers node_modules only with a lockfile
+# and an install record newer than every package file.
 make_project() {
     local dir="$1" age="$2"
     mkdir -p "$dir/node_modules/pkg"
     printf '{}\n' > "$dir/package.json"
+    printf '{}\n' > "$dir/package-lock.json"
     dd if=/dev/zero of="$dir/node_modules/pkg/blob" bs=1024 count=16 2> /dev/null
+    printf '{}\n' > "$dir/node_modules/.package-lock.json"
     if [[ "$age" == "old" ]]; then
         find "$dir" -exec touch -t 202001010000 {} +
+        touch -t 202001020000 "$dir/node_modules/.package-lock.json"
     fi
 }
 

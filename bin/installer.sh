@@ -358,7 +358,7 @@ collect_installers() {
 
     if [[ ${#all_files[@]} -eq 0 ]]; then
         if [[ "${IN_ALT_SCREEN:-0}" != "1" ]]; then
-            echo -e "${GREEN}${ICON_SUCCESS}${NC} Great! No installer files to clean"
+            echo -e "${GREEN}${ICON_SUCCESS}${NC} No installer files to clean"
         fi
         return 1
     fi
@@ -575,7 +575,10 @@ select_installers() {
     while true; do
         draw_menu
 
-        IFS= read -r -s -n1 key || key=""
+        if ! IFS= read -r -s -n1 key; then
+            restore_terminal
+            return 1
+        fi
         case "$key" in
             $'\x1b')
                 IFS= read -r -s -n1 -t 1 key2 || key2=""
@@ -840,7 +843,10 @@ delete_selected_installers() {
     echo ""
     echo -ne "${PURPLE}${ICON_ARROW}${NC} Delete ${#INSTALLER_DELETE_PATHS[@]} installers, ${confirm_human}  ${GREEN}Enter${NC} confirm, ${GRAY}ESC${NC} cancel: "
 
-    IFS= read -r -s -n1 confirm || confirm=""
+    if ! IFS= read -r -s -n1 confirm; then
+        printf '\n'
+        return 1
+    fi
     case "$confirm" in
         $'\e' | q | Q)
             return 1
@@ -901,7 +907,7 @@ perform_installers() {
             printf '\nCheck that the scan locations are readable and responsive, then retry mo installer.\n' >&2
             return "$collect_status"
         fi
-        echo -e "${GREEN}${ICON_SUCCESS}${NC} Great! No installer files to clean"
+        echo -e "${GREEN}${ICON_SUCCESS}${NC} No installer files to clean"
         printf '\n'
         return 2 # Nothing to clean
     fi
@@ -1040,6 +1046,15 @@ main() {
             # Already handled by collect_installers
             ;;
         *)
+            # A timeout or signal in the delete phase stops before later
+            # selections, but it has already recorded which file it hit.
+            # Report that and what was removed instead of ending silently.
+            if [[ $total_delete_failed -gt 0 ]]; then
+                show_summary
+                if mole_rc_timeout "$exit_code"; then
+                    echo -e "${YELLOW}${ICON_WARNING}${NC} A file check timed out, so later selections were left in place. Retry mo installer."
+                fi
+            fi
             return "$exit_code"
             ;;
     esac

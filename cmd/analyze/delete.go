@@ -35,24 +35,29 @@ const trashTimeout = 30 * time.Second
 // Finder fallback.
 const trashBinary = "/usr/bin/trash"
 
-func deletePathCmd(path string, counter *int64) tea.Cmd {
+func deletePathCmd(path string, counter *int64, audit *deleteAudit) tea.Cmd {
 	return func() tea.Msg {
+		audit.begin()
 		count, err := trashPathWithProgress(path, counter)
+		audit.record(path, err)
+		audit.end()
 		return deleteProgressMsg{
-			done:  true,
-			err:   err,
-			count: count,
-			path:  path,
+			done:       true,
+			err:        err,
+			count:      count,
+			path:       path,
+			logWarning: audit.warning(),
 		}
 	}
 }
 
 // deleteMultiplePathsCmd moves paths to Trash and aggregates results.
-func deleteMultiplePathsCmd(paths []string, counter *int64) tea.Cmd {
+func deleteMultiplePathsCmd(paths []string, counter *int64, audit *deleteAudit) tea.Cmd {
 	return func() tea.Msg {
 		var totalCount int64
 		var errors []string
 		var removedPaths []string
+		audit.begin()
 
 		// Process deeper paths first to avoid parent/child conflicts.
 		pathsToDelete := append([]string(nil), paths...)
@@ -62,6 +67,7 @@ func deleteMultiplePathsCmd(paths []string, counter *int64) tea.Cmd {
 
 		for _, path := range pathsToDelete {
 			count, err := trashPathWithProgress(path, counter)
+			audit.record(path, err)
 			totalCount += count
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -78,6 +84,7 @@ func deleteMultiplePathsCmd(paths []string, counter *int64) tea.Cmd {
 		if len(errors) > 0 {
 			resultErr = &multiDeleteError{errors: errors}
 		}
+		audit.end()
 
 		return deleteProgressMsg{
 			done:         true,
@@ -85,6 +92,7 @@ func deleteMultiplePathsCmd(paths []string, counter *int64) tea.Cmd {
 			count:        totalCount,
 			path:         "",
 			removedPaths: removedPaths,
+			logWarning:   audit.warning(),
 		}
 	}
 }
@@ -342,7 +350,8 @@ func isProtectedAnalyzeDeletePath(path string) bool {
 		if cleanPath == dockerDesktopState || strings.HasPrefix(cleanPath, dockerDesktopState+string(filepath.Separator)) {
 			return true
 		}
-		if isPathWithinExistingRoot(cleanPath, dockerDesktopState) {
+		if isPathWithinExistingRoot(cleanPath, dockerDesktopState) ||
+			containsProtectedRoot(cleanPath, dockerDesktopState) {
 			return true
 		}
 
@@ -350,7 +359,8 @@ func isProtectedAnalyzeDeletePath(path string) bool {
 		if cleanPath == orbstackState || strings.HasPrefix(cleanPath, orbstackState+string(filepath.Separator)) {
 			return true
 		}
-		if isPathWithinExistingRoot(cleanPath, orbstackState) {
+		if isPathWithinExistingRoot(cleanPath, orbstackState) ||
+			containsProtectedRoot(cleanPath, orbstackState) {
 			return true
 		}
 
@@ -360,7 +370,9 @@ func isProtectedAnalyzeDeletePath(path string) bool {
 				if !strings.HasSuffix(strings.ToLower(entry.Name()), "dev.orbstack") {
 					continue
 				}
-				if isPathWithinExistingRoot(cleanPath, filepath.Join(groupContainers, entry.Name())) {
+				stateRoot := filepath.Join(groupContainers, entry.Name())
+				if isPathWithinExistingRoot(cleanPath, stateRoot) ||
+					containsProtectedRoot(cleanPath, stateRoot) {
 					return true
 				}
 			}
@@ -484,6 +496,19 @@ func protectedAnalyzeHomeRoots() []string {
 	return homeRoots
 }
 
+func containsProtectedRoot(path, protectedRoot string) bool {
+	// An absent runtime must not make an otherwise empty container directory
+	// undeletable. Unknown visibility still keeps its structural ancestors.
+	if _, err := os.Lstat(protectedRoot); os.IsNotExist(err) {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(protectedRoot); err == nil &&
+		isPathWithinExistingRoot(resolved, path) {
+		return true
+	}
+	return isPathWithinExistingRoot(protectedRoot, path)
+}
+
 func isPathWithinExistingRoot(path, protectedRoot string) bool {
 	protectedInfo, err := os.Stat(protectedRoot)
 	if err != nil {
@@ -528,6 +553,7 @@ var endpointSecurityBundlePrefixes = []string{
 	"com.paloaltonetworks.",
 	"com.cisco.anyconnect",
 	"com.cisco.secureclient",
+	"com.alibaba.security.",
 }
 
 // isEndpointSecurityCachePath reports whether path is an endpoint-security / EDR
@@ -538,6 +564,13 @@ func isEndpointSecurityCachePath(path string) bool {
 	lowerPath := strings.ToLower(path)
 	if !strings.HasPrefix(lowerPath, "/private/var/folders/") && !strings.HasPrefix(lowerPath, "/var/folders/") {
 		return false
+	}
+	// A whole Darwin user/cache container also moves any protected agent
+	// below it. Keep the structural ancestors; ordinary app cache leaves stay
+	// eligible without an unbounded recursive scan of the shared container.
+	rel := strings.TrimPrefix(strings.TrimPrefix(lowerPath, "/private"), "/var/folders/")
+	if len(strings.Split(rel, string(filepath.Separator))) <= 3 {
+		return true
 	}
 	for _, prefix := range endpointSecurityBundlePrefixes {
 		if strings.Contains(lowerPath, prefix) {

@@ -146,7 +146,9 @@ EOF
 
 # Upstream merges can add new hard-coded state paths. Every one the CLI's
 # commands use must go through the overrides; Mole's own install/update/remove
-# management and root's private temp dir are left alone on purpose.
+# management, root's private temp dir and help text that names the upstream
+# folders (`mo remove`'s usage, `mo slim`'s whitelist note) are left alone on
+# purpose.
 @test "no command reads or writes the upstream folders directly" {
     local hits
     hits=$(cd "$PROJECT_ROOT" && grep -rnE '(\.config|\.cache|Library/Logs)"?/mole\b' mole bin lib |
@@ -154,7 +156,9 @@ EOF
         grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' |
         grep -vE '^lib/manage/(update|remove)\.sh:' |
         grep -vE 'root_home|/var/root/' |
-        grep -vE '^lib/core/app_protection\.sh:[0-9]+:[[:space:]]*\*/Library/Logs/mole \|' || true)
+        grep -vE '^lib/core/app_protection\.sh:[0-9]+:[[:space:]]*\*/Library/Logs/mole \|' |
+        grep -vE '^mole:[0-9]+:Remove Mole from this Mac\. ' |
+        grep -vE '^bin/slim\.sh:[0-9]+:[[:space:]]*echo "Apps protected by ' || true)
     if [[ -n "$hits" ]]; then
         printf 'unrouted state path:\n%s\n' "$hits" >&2
         return 1

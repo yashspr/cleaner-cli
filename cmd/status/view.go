@@ -544,6 +544,14 @@ func formatDiskLine(label string, d DiskStatus) string {
 	if d.Total > d.Used {
 		free = d.Total - d.Used
 	}
+	// Finder's corrected used value includes purgeable APFS space in the
+	// corresponding free value. Keep the main status line for immediately
+	// free space; the meta line below reports purgeable space separately.
+	if free > d.Purgeable {
+		free -= d.Purgeable
+	} else {
+		free = 0
+	}
 	return fmt.Sprintf("%-6s %s  %s used, %s free", label, bar, used, humanBytesShort(free))
 }
 
@@ -721,12 +729,19 @@ func miniBar(percent float64) string {
 
 func renderNetworkCard(netStats []NetworkStatus, history NetworkHistory, proxy ProxyStatus, cardWidth int) cardData {
 	var lines []string
-	var totalRx, totalTx float64
+	totalRx, totalTx := networkTotals(netStats)
 	var primaryIP string
 
+	// The routed physical interface owns the IP line, so Ethernet and USB
+	// adapters show theirs. A routed tunnel's address is not the Mac's LAN IP,
+	// and an unknown route keeps the en0 fallback.
 	for _, n := range netStats {
-		totalRx += n.RxRateMBs
-		totalTx += n.TxRateMBs
+		if n.IP != "" && n.defaultRoute && !n.defaultTunnel {
+			primaryIP = n.IP
+			break
+		}
+	}
+	for _, n := range netStats {
 		if primaryIP == "" && n.IP != "" && n.Name == "en0" {
 			primaryIP = n.IP
 		}
@@ -876,10 +891,11 @@ func renderBatteryCard(batts []BatteryStatus, thermal ThermalStatus, probed bool
 				healthParts = append(healthParts, dangerStyle.Render(label))
 			case "warn":
 				healthParts = append(healthParts, warnStyle.Render(label))
-			default:
+			case "ok":
 				healthParts = append(healthParts, okStyle.Render(label))
 			}
-		} else if b.Health != "" {
+		}
+		if len(healthParts) == 0 && b.Health != "" {
 			healthParts = append(healthParts, b.Health)
 		}
 

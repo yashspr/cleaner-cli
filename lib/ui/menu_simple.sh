@@ -109,8 +109,8 @@ paginated_multi_select() {
     _menu_saved_exit=$(trap -p EXIT)
     _menu_saved_int=$(trap -p INT)
     _menu_saved_term=$(trap -p TERM)
-    # Uses :- defaults: cleanup() is the EXIT trap and may fire once more at
-    # shell exit after this function returned and the saved-trap locals are
+    # Uses :- defaults: _ms_cleanup() is the EXIT trap and may fire once more
+    # at shell exit after this function returned and the saved-trap locals are
     # gone. See menu_paginated.sh.
     # shellcheck disable=SC2329
     _menu_restore_traps() {
@@ -119,21 +119,24 @@ paginated_multi_select() {
         if [[ -n "${_menu_saved_term:-}" ]]; then eval "${_menu_saved_term}"; else trap - TERM; fi
     }
 
-    # Cleanup function
-    cleanup() {
+    # Cleanup function. Nested functions are global once defined, so these
+    # handlers carry a file prefix: a bare cleanup() or handle_interrupt()
+    # would replace the caller's handler of that name, and bin/clean.sh's
+    # restored `cleanup EXIT` trap would then run this one instead.
+    _ms_cleanup() {
         _menu_restore_traps
         restore_terminal
     }
 
     # Interrupt handler
     # shellcheck disable=SC2329
-    handle_interrupt() {
-        cleanup
+    _ms_handle_interrupt() {
+        _ms_cleanup
         exit 130 # Standard exit code for Ctrl+C
     }
 
-    trap cleanup EXIT
-    trap handle_interrupt INT TERM
+    trap _ms_cleanup EXIT
+    trap _ms_handle_interrupt INT TERM
 
     # Setup terminal - preserve interrupt character
     stty -echo -icanon intr ^C 2> /dev/null || true
@@ -147,9 +150,6 @@ paginated_multi_select() {
     hide_cursor
 
     # Helper functions
-    # shellcheck disable=SC2329
-    print_line() { printf "\r\033[2K%s\n" "$1" >&2; }
-
     render_item() {
         local idx=$1 is_current=$2
         local checkbox="$ICON_EMPTY"
@@ -183,10 +183,10 @@ paginated_multi_select() {
         printf "${clear_line}${PURPLE_BOLD}%s${NC}  ${GRAY}%d/%d selected${NC}\n" "${title}" "$selected_count" "$total_items" >&2
 
         if [[ $total_items -eq 0 ]]; then
-            printf "${clear_line}${GRAY}No items available${NC}\n" >&2
-            printf "${clear_line}\n" >&2
-            printf "${clear_line}${GRAY}Q${NC} Quit\n" >&2
-            printf "${clear_line}" >&2
+            printf '%b' "${clear_line}${GRAY}No items available${NC}\n" >&2
+            printf '%b' "${clear_line}\n" >&2
+            printf '%b' "${clear_line}${GRAY}Q${NC} Quit\n" >&2
+            printf '%b' "${clear_line}" >&2
             return
         fi
 
@@ -206,7 +206,7 @@ paginated_multi_select() {
             [[ $cursor_pos -lt 0 ]] && cursor_pos=0
         fi
 
-        printf "${clear_line}\n" >&2
+        printf '%b' "${clear_line}\n" >&2
 
         # Items for current window
         local start_idx=$top_index
@@ -224,15 +224,15 @@ paginated_multi_select() {
         local items_shown=$((end_idx - start_idx + 1))
         [[ $items_shown -lt 0 ]] && items_shown=0
         for ((i = items_shown; i < items_per_page; i++)); do
-            printf "${clear_line}\n" >&2
+            printf '%b' "${clear_line}\n" >&2
         done
 
         # Clear any remaining lines at bottom
-        printf "${clear_line}\n" >&2
-        printf "${clear_line}${GRAY}${ICON_NAV_UP}${ICON_NAV_DOWN} | Space | Enter Save | Q Cancel${NC}\n" >&2
+        printf '%b' "${clear_line}\n" >&2
+        printf '%b' "${clear_line}${GRAY}${ICON_NAV_UP}${ICON_NAV_DOWN} | Space | Enter Save | Q Cancel${NC}\n" >&2
 
         # Clear one more line to ensure no artifacts
-        printf "${clear_line}" >&2
+        printf '%b' "${clear_line}" >&2
     }
 
     # Main interaction loop
@@ -242,7 +242,7 @@ paginated_multi_select() {
 
         case "$key" in
             "QUIT")
-                cleanup
+                _ms_cleanup
                 return 1
                 ;;
             "UP")

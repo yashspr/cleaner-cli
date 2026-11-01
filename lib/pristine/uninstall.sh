@@ -65,9 +65,11 @@ pristine_uninstall_main_hook() {
 
     pristine_json_begin
     if [[ "$list_mode" != "true" ]]; then
-        # Answers upstream's "Proceed? [y/N]"; the batch confirmation that
-        # follows reads EOF, which upstream treats as Enter.
-        exec 0<<< "y"
+        # --yes or --dry-run is the confirmation. Upstream's batch prompt
+        # accepts only a terminal (EOF is not consent), so a hook line in
+        # _batch_preview_and_confirm reads this instead. stdin stays
+        # /dev/null: nothing waits on a keypress.
+        PRISTINE_UNINSTALL_CONFIRMED=true
     fi
     pristine_install_admin_policy
     pristine_install_operation_events ""

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -103,9 +102,7 @@ func performOverviewScanForJSONWithEntries(path string, insightEntries, overview
 		entries = append(entries, entry)
 	}
 
-	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].Size > entries[j].Size
-	})
+	sortDirEntriesBySize(entries)
 
 	return jsonOutput{
 		Path:       path,

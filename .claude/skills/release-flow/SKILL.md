@@ -1,6 +1,8 @@
 ---
 name: release-flow
 description: "Mole CLI release runbook for distribution channels, pre-flight checks, capital-V tags, artifacts, and curated-note handoff. Use when assessing or executing a Mole release. Not for release-note copy alone or ordinary code review."
+metadata:
+  internal: true
 ---
 
 # Mole CLI Release Flow
@@ -14,6 +16,7 @@ Tag-driven flow. The `release.yml` workflow watches `'V*'` tag pushes (capital `
 | Nightly (`mo update --nightly`) | `main` HEAD via `install.sh` | Any commit pushed to `main` | Automatic; no tag or release involved |
 | GitHub stable release | amd64/arm64 binaries + `SHA256SUMS` | Push a capital-`V` tag | `release.yml` builds and creates the release; curated notes are a manual follow-up |
 | Homebrew core | Version-bump PR to `Homebrew/homebrew-core` | Same `V*` tag workflow | Automatic PR; merge timing is upstream's |
+| Nix flake | Source-built macOS package from the selected Git ref | `main` follows development; a release tag pins that release | Nix manages install, upgrade and removal; no separate registry publish |
 
 At the start of any release-flavored task, restate which channels this run will touch and which it will not, and confirm with the maintainer before acting. Channel scope is specified by the maintainer, never inferred.
 
@@ -22,15 +25,16 @@ At the start of any release-flavored task, restate which channels this run will 
 Resolve the latest published stable tag from GitHub before choosing the version or review range. Reconcile handoff claims against the current branch, worktree, and remote SHA; an earlier report of uncommitted work may describe commits that have already landed. Review all changes since that stable tag, not just the final fix batch.
 
 1. `grep '^VERSION=' mole` matches the new version.
-2. `SECURITY_AUDIT.md` opening line reflects the new version and date.
+2. `SECURITY_AUDIT.md` opening line reflects the new version and date, and its CI coverage list matches the matrix in `.github/workflows/test.yml`.
 3. `git status -s` is empty or only contains intentionally staged release work.
 4. `git log origin/main..HEAD --oneline` shows only commits you intend to ship.
 5. `./scripts/check.sh --format` and `TERM=xterm-256color MOLE_TEST_NO_AUTH=1 MOLE_TEST_JOBS=2 BATS_FORMATTER=tap ./scripts/test.sh` both exit 0.
 6. `go test ./...` and `make build` both pass.
+7. `scripts/e2e_macos.py` exits 0 on a real Mac at the candidate commit. It installs IINA from its verified GitHub DMG, launches it, uninstalls it with every personal-data row selected through a real terminal, lists the DMG in `mo installer --dry-run`, deletes it from `mo analyze ~/Downloads`, and runs every other command read-only, so it changes only what it installed and never asks for a password. It refuses to start when the Mac already has IINA or any of its data. A failed run lists what it left behind; move those to the Trash before rerunning. Transcripts and `report.json` land in `~/Library/Logs/mole-e2e/<run>/`.
 
-Use the Go version declared in `go.mod` for local release builds, matching `actions/setup-go` in CI, then run `scripts/check_release_minos.sh` on both architectures. A newer local Go can raise the minimum macOS version even with `CGO_ENABLED=0`; during V1.54.0 verification, Go 1.27 produced macOS 13 binaries while the declared Go 1.25 toolchain preserved macOS 12. Rebuild with the declared toolchain instead of relaxing the minimum-OS gate.
+Use the Go version declared in `go.mod` for local release builds, matching `actions/setup-go` in CI, then run `scripts/check_release_minos.sh` on both architectures. A newer local Go can raise the minimum macOS version even with `CGO_ENABLED=0`; during V1.54.0 verification, Go 1.27 produced macOS 13 binaries while the declared Go 1.25 toolchain preserved macOS 12. Rebuild with the declared toolchain instead of relaxing the minimum-OS gate. Check the `make release-amd64 release-arm64` outputs, not `make build`: the local build links `status` with cgo against the host SDK, so its `status-go` reports the host macOS as its minimum and says nothing about the release binaries.
 
-Capture the test runner's exit status and structured summary, with skipped tests reported separately. After pushing the candidate commit, wait for its required Check, Validation, and CodeQL workflows to finish successfully before tagging that exact SHA. A cancelled run or a green check on another commit is not release evidence.
+Capture the test runner's exit status and structured summary, with skipped tests reported separately. After pushing the candidate commit, wait for its required Check, Validation, CodeQL, Nix and Secrets workflows to finish successfully before tagging that exact SHA (a version bump changes `mole`, so all five run on it). Nix must verify both Darwin architectures and the installed/profile lifecycle. A cancelled run or a green check on another commit is not release evidence.
 
 ## Tag and publish
 
@@ -55,6 +59,8 @@ Use a fresh archive of the previous tag so ignored local `bin/*` builds cannot c
 The curated-notes flow (bilingual format, `gh release edit` instead of `create`, thanks block, and the six-reaction set) is owned by `.claude/skills/release-notes/SKILL.md`. `.agents/skills/release-notes` is a symlink to that canonical directory for Codex discovery, and its Codex-only invocation policy lives in `agents/openai.yaml`; do not replace the symlink with a copied mirror. Follow that skill; do not duplicate its format details here. Version, codename, and emoji go only in the release title; the body h1 is just `Mole`.
 
 After applying notes and the standard reactions through that skill, read back the published title, full body, and all six reactions. Report GitHub Stable and Homebrew availability separately; a successfully opened core PR still needs upstream tests and merge.
+
+- Issues whose reporter already verified the fix on nightly get no "now in stable" follow-up after the release, and none is proposed.
 
 ## Release-notes craft
 

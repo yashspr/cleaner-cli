@@ -32,14 +32,14 @@ all_task_ids() {
 
     [ "$status" -eq 0 ] || return 1
     [[ "$output" == *'{"type":"start","schema_version":1,"command":"optimize","dry_run":false,"admin":false,"tasks":[{"id":"'* ]] || return 1
-    [[ "$output" == *'{"type":"task","id":"system_maintenance","label":"DNS & Spotlight Check","status":"skipped","detail":"'*'Skipped (deselected): DNS & Spotlight Check"}'* ]] || return 1
+    [[ "$output" == *'{"type":"task","id":"cache_refresh","label":"Finder Cache Refresh","status":"skipped","detail":"'*'Skipped (deselected): Finder Cache Refresh"}'* ]] || return 1
     [[ "$(grep -c '"type":"task"' <<< "$output")" -eq "$task_count" ]] || return 1
     [[ "$output" == *"\"outcomes\":{\"applied\":0,\"unchanged\":0,\"skipped\":$task_count,"* ]] || return 1
     [[ "${lines[${#lines[@]} - 1]}" == '{"type":"end","exit_code":0}' ]] || return 1
 }
 
 @test "optimize --skip-from rejects unknown task ids before running anything" {
-    printf 'system_maintenance\nnot_a_task\n' > "$HOME/skip.txt"
+    printf 'cache_refresh\nnot_a_task\n' > "$HOME/skip.txt"
     run env HOME="$HOME" MOLE_TEST_NO_AUTH=1 "$PROJECT_ROOT/pristine" optimize --json --skip-from "$HOME/skip.txt"
     [ "$status" -eq 1 ] || return 1
     [[ "$output" == *"Unknown optimize task id: not_a_task"* ]] || return 1
