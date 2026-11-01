@@ -92,12 +92,21 @@ upstream libraries it loads first reassign `SCRIPT_DIR`.
 | optimize | `execute_optimization`, `optimize_outcomes_reset`, `show_system_health`, `show_optimization_summary` | `MOLE_OPTIMIZE_ACTIONS`, `MOLE_OPTIMIZE_HEALTH_NAMES`, `MOLE_OPTIMIZE_RESULT_*`, `MOLE_OPTIMIZE_OUTCOME_*`, `MOLE_OPTIMIZE_SUDO_AVAILABLE`, `OPTIMIZE_*` stats |
 | uninstall | `uninstall_list_apps` and `match_apps_by_name` (replaced), `_batch_scan_app_details`, `_batch_render_summary`, `_mole_delete_log` | `apps_data`, `selected_apps`, `scan_applications`, `load_applications`; batch locals `app_details` (field order), `blocked_apps`, `manual_removal_apps`, `success_count`, `failed_count`, `total_size_freed`, `failed_items`, `running_at_uninstall_apps`; relies on the batch confirmation treating EOF as Enter |
 
+### Branches
+
+- `pristine/main` is the fork's mainline and the default branch: every fork change, and the
+  `pristine-v*` release tags. Topic branches (`pristine/<topic>`) start from it and merge back.
+- `main` mirrors upstream `main` exactly and gets no commits of its own, so GitHub's "Sync
+  fork" always fast-forwards it. `git diff main pristine/main` is everything the fork changes.
+
 ### Merging upstream
 
 ```bash
 git config merge.ours.driver true   # once per clone (keeps our README.md)
-git fetch upstream
-git merge upstream/main          # merge, not rebase: keeps fork history and tags intact
+# Sync `main` first: GitHub's "Sync fork", or
+#   git fetch upstream && git switch main && git merge --ff-only upstream/main && git push
+git switch pristine/main
+git merge main                   # merge, not rebase: keeps fork history and tags intact
                                  # docs/img conflict? → git rm docs/img/<file>
 git grep -n 'pristine-fork'      # hook lines still in place?
 MOLE_TEST_NO_AUTH=1 bats tests/pristine_*.bats   # pristine_data_dirs.bats lists new state paths to route
