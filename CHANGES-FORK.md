@@ -18,6 +18,7 @@ Upstream base: `tw93/mole` V1.67.0 + 36 commits (`f72e97f7`, merged 2026-11-01).
 | 2026-09-28 | `--json` for `installer`, `purge`, `optimize`, `uninstall`; shared flag/event layer in `lib/pristine/common.sh`; the `pristine` entrypoint writes the final `end` event and forwards cancellation to the whole process tree |
 | 2026-09-28 | Repository renamed to `yashspr/cleaner-cli`; bundle `BUILD-INFO` source URL updated; `pristine` entrypoint's default dialog title is now "cleaner-cli" |
 | 2026-09-29 | Relocatable data directories: `PRISTINE_CONFIG_DIR`, `PRISTINE_CACHE_DIR`, `PRISTINE_LOG_DIR` replace `~/.config/mole`, `~/.cache/mole`, `~/Library/Logs/mole` (shell and Go); `PRISTINE_PROTECT_PATHS` keeps folders out of cleanup (`lib/pristine/paths.sh`) |
+| 2026-11-02 | `purge --only-from`: a recent artifact listed by exact path is removed like a row ticked in upstream's menu (`pristine_purge_picked_recent`); uncertain activity and cloud-synced rows stay refused, and every protection check still runs |
 
 ## Releases
 
@@ -32,6 +33,8 @@ must be pushed so its corresponding source is public (GPL-3.0 §6).
 | `pristine-v0.2.0` | tw93/mole v1.56.0 (`50790e8a`) | rebrand; admin-dialog fix; `--json` for installer / purge / optimize / uninstall; entrypoint `end` event + cancellation |
 | `pristine-v0.2.1` | tw93/mole v1.56.0 (`50790e8a`) | repo renamed to `yashspr/cleaner-cli`: README, source URL in `BUILD-INFO`, neutral default dialog title |
 | `pristine-v0.3.0` | tw93/mole v1.56.0 (`50790e8a`) | relocatable data directories (`PRISTINE_CONFIG_DIR`, `PRISTINE_CACHE_DIR`, `PRISTINE_LOG_DIR`) and `PRISTINE_PROTECT_PATHS` |
+| `pristine-v0.4.0` | tw93/mole V1.67.0 + 36 (`f72e97f7`) | upstream merge; EOF no longer confirms, so installer reads an empty stdin and uninstall uses `PRISTINE_UNINSTALL_CONFIRMED` |
+| `pristine-v0.4.1` | tw93/mole V1.67.0 + 36 (`f72e97f7`) | `purge --only-from` removes a listed recent artifact |
 
 Cutting a release:
 
@@ -75,6 +78,7 @@ Rule: **fork logic lives in fork-only files; shared files only get hook lines.**
 | `lib/core/sudo.sh` | 3 lines at the `osascript` dialog | title from `PRISTINE_DIALOG_TITLE` (sanitized; default "Mole", `pristine` sets "cleaner-cli") |
 | `lib/core/base.sh` | 1 `source .../lib/pristine/paths.sh` line | load the data-dir overrides for every command |
 | `lib/core/app_protection.sh` | 1 line in `should_protect_path` | data dirs and `PRISTINE_PROTECT_PATHS` are never cleaned |
+| `lib/clean/project.sh` | 1 line in the non-interactive selection of `clean_project_artifacts` | a recent row listed in `--only-from` is selected (`pristine_purge_picked_recent`) |
 | `lib/uninstall/batch.sh` | 1 line in `_batch_preview_and_confirm` | `--json` with `--yes` or `--dry-run` confirms the batch; upstream otherwise needs a terminal |
 | `mole`, `bin/*.sh`, `lib/*/*.sh`, `cmd/analyze/cache.go`, `cmd/analyze/oplog.go`, `cmd/status/prefs.go` | each hard-coded `~/.config/mole`, `~/.cache/mole`, `~/Library/Logs/mole` | `${PRISTINE_<KIND>_DIR:-<upstream path>}`; `tests/pristine_data_dirs.bats` fails if a merge adds an unrouted one |
 | `.gitignore` | `/dist/` | ignore bundle output |
@@ -163,7 +167,7 @@ ignored. An unreadable file or an invalid line aborts with exit 1 before anythin
 |---|---|---|
 | `clean [--dry-run]` | `--json --admin --exclude-from` | Everything Mole would clean, minus excluded paths (joined to the whitelist in memory, so excluding a child also keeps its parents). The real run rescans. |
 | `installer [--dry-run]` | `--json --exclude-from --only-from` (lists need `--json`) | The menu is replaced: all candidates minus excluded, or only listed ones. Upstream's identity + size re-check runs before each delete. Deletes are permanent unless `MOLE_DELETE_MODE=trash`. |
-| `purge (--dry-run \| --yes) [--include-empty]` | `--json --exclude-from --only-from` | Upstream's unattended rule stays: artifacts modified within 7 days (or with uncertain activity) and cloud-synced ones are **never** removed unattended, even if listed. Every protection/identity/activity check still runs. |
+| `purge (--dry-run \| --yes) [--include-empty]` | `--json --exclude-from --only-from` | Upstream's unattended rule stays for everything not listed: artifacts modified within 7 days (or with uncertain activity) and cloud-synced ones are **never** removed unattended. A recent artifact listed by exact path in `--only-from` counts as picked, as in upstream's menu; uncertain and cloud-synced ones stay refused even if listed. Every protection/identity/activity check still runs. |
 | `optimize [--dry-run]` | `--json --admin --skip-from FILE` | All tasks, minus task ids listed in `--skip-from` (recorded as `skipped`). Task ids are in the `start` event. |
 | `uninstall --list` / `uninstall (--dry-run \| --yes) [--permanent] APP…` | `--json --admin --yes` | Under `--json`, `APP` is an exact bundle path or bundle id; any unmatched/ambiguous `APP` selects nothing (`error` event, exit 1). Removal needs `--yes`. Default is Trash. |
 
@@ -187,7 +191,7 @@ Every stream starts with `start` (`schema_version`, `command`, …) and ends wit
 | installer | `failure` | `path`, `reason` (`missing` / `changed since scan` / `delete failed` / …) |
 | installer | `summary` | `dry_run`, `status` (`complete` / `nothing_selected` / `nothing_found` / `incomplete` / `scan_failed` / `cancelled` / `interrupted`), `exit_code`, `candidates`, `selected`, `removed`, `size_kb`, `failed`, `scan_failure_path` |
 | purge | `start` | `dry_run`, `search_paths`, `excluded_paths`, `only_paths` |
-| purge | `item` | `path`, `project`, `artifact`, `size_kb` (int/null), `activity` (`old` / `recent` / `uncertain`), `age_days`, `cloud`, `selectable` (false = never removed unattended) |
+| purge | `item` | `path`, `project`, `artifact`, `size_kb` (int/null), `activity` (`old` / `recent` / `uncertain`), `age_days`, `cloud`, `selectable` (false = not removed unattended unless picked: a `recent` one is removed when listed in `--only-from`) |
 | purge | `summary` | `dry_run`, `status` (upstream `PURGE_RUN_OUTCOME`: `completed` / `incomplete` / `no_candidates` / `cancelled` / `scan_failed`), `exit_code`, `candidates`, `items`, `size_kb`, `unmeasured` |
 | optimize | `health` | `data`: upstream health JSON (memory, disk, uptime, suggestions) |
 | optimize | `start` | `dry_run`, `admin`, `tasks` (`[{id, label, skip}]`) |

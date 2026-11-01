@@ -74,7 +74,7 @@ run_purge() {
     [[ "$output" == *'"type":"summary","dry_run":false,"status":"completed","exit_code":0,"candidates":2,"items":1,'* ]] || return 1
 }
 
-@test "purge --json --yes --only-from removes only the listed artifact and never a recent one" {
+@test "purge --json --yes --only-from removes the listed artifacts, a recent one included" {
     printf '%s\n%s\n' "$HOME/code/beta/node_modules" "$HOME/code/gamma/node_modules" > "$HOME/only.txt"
 
     run_purge --json --yes --only-from "$HOME/only.txt"
@@ -82,8 +82,30 @@ run_purge() {
     [ "$status" -eq 0 ] || return 1
     [[ -d "$HOME/code/alpha/node_modules" ]] || return 1
     [[ ! -e "$HOME/code/beta/node_modules" ]] || return 1
+    [[ ! -e "$HOME/code/gamma/node_modules" ]] || return 1
+    [[ "$output" == *'"items":2,'* ]] || return 1
+}
+
+@test "purge --json --yes never removes a recent artifact that was not listed" {
+    printf '%s\n' "$HOME/code/beta/node_modules" > "$HOME/only.txt"
+
+    run_purge --json --yes --only-from "$HOME/only.txt"
+    [ "$status" -eq 0 ] || return 1
     [[ -d "$HOME/code/gamma/node_modules" ]] || return 1
-    [[ "$output" == *'"items":1,'* ]] || return 1
+
+    run_purge --json --yes
+    [ "$status" -eq 0 ] || return 1
+    [[ ! -e "$HOME/code/alpha/node_modules" ]] || return 1
+    [[ -d "$HOME/code/gamma/node_modules" ]] || return 1
+}
+
+@test "purge --only-from lists a recent artifact by exact path only, not by its project" {
+    printf '%s\n' "$HOME/code/gamma" > "$HOME/only.txt"
+
+    run_purge --json --yes --only-from "$HOME/only.txt"
+
+    [ "$status" -eq 0 ] || return 1
+    [[ -d "$HOME/code/gamma/node_modules" ]] || return 1
 }
 
 @test "purge --json refuses the --paths editor" {

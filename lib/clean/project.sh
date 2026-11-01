@@ -3120,7 +3120,7 @@ clean_project_artifacts() {
                 skipped_cloud_count=$((skipped_cloud_count + 1))
                 continue
             fi
-            if [[ ${item_recent_flags[i]} != "true" ]]; then
+            if [[ ${item_recent_flags[i]} != "true" ]] || { declare -F pristine_purge_picked_recent > /dev/null && pristine_purge_picked_recent "${item_paths[i]}" "${item_activity_states[i]:-uncertain}"; }; then # pristine-fork
                 [[ -n "$PURGE_SELECTION_RESULT" ]] && PURGE_SELECTION_RESULT+=","
                 PURGE_SELECTION_RESULT+="$i"
             fi

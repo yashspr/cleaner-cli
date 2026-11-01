@@ -8,7 +8,9 @@
 #
 # Selection keeps upstream's non-interactive rule: artifacts modified in the
 # last 7 days (or whose activity is uncertain) and cloud-synced artifacts are
-# never removed unattended. --exclude-from joins the whitelist (dropped at
+# never removed unattended, except that a recent artifact listed by exact path
+# in --only-from counts as picked by a person, like a row ticked in upstream's
+# menu (pristine_purge_picked_recent). --exclude-from joins the whitelist (dropped at
 # discovery and refused again at the final remove); --only-from treats every
 # other candidate as whitelisted. All discovery-time and pre-delete
 # protection, identity and activity checks still run.
@@ -88,6 +90,18 @@ pristine_purge_main_hook() {
         pristine_purge_emit_summary "$rc"
         return "$rc"
     }
+}
+
+# Called from the non-interactive selection in lib/clean/project.sh (tagged
+# pristine-fork). $1 candidate path, $2 its activity state. True when the
+# caller listed this recent artifact by exact path in --only-from: the app
+# sends only rows a person ticked. Upstream's menu allows the same, and its
+# final guard already accepts a known-recent row that was picked. Uncertain
+# activity is never an override, and cloud-synced rows are skipped before this
+# is asked; the running-project and content protections still apply.
+pristine_purge_picked_recent() {
+    [[ -n "${PRISTINE_ONLY_FILE:-}" && "${2:-}" == "recent" ]] || return 1
+    pristine_path_listed "${1:-}" ${PRISTINE_ONLY_PATHS[@]+"${PRISTINE_ONLY_PATHS[@]}"}
 }
 
 pristine_purge_emit_start() {
