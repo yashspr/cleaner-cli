@@ -263,7 +263,7 @@ discover_project_cache_roots() {
 
     while IFS= read -r root; do
         [[ -d "$root" ]] && roots+=("$root")
-    done < <(mole_purge_read_paths_config "${PRISTINE_CONFIG_DIR:-$HOME/.config/mole}/purge_paths") # pristine-fork
+    done < <(mole_purge_read_paths_config "${PRISTINE_CONFIG_DIR:-$HOME/.config/mole}/purge_paths" 2> /dev/null) # pristine-fork
 
     local _indicator_tmp
     _indicator_tmp=$(create_temp_file)

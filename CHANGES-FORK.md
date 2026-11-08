@@ -5,7 +5,7 @@ licensed under GPL-3.0 (see [LICENSE](LICENSE)). It is a command-line engine mea
 inside a Mac app and driven as a separate program. It is not affiliated with or endorsed by Mole
 or its author.
 
-Upstream base: `tw93/mole` V1.67.0 + 36 commits (`f72e97f7`, merged 2026-11-01). Before that, v1.56.0 (`50790e8a`).
+Upstream base: `tw93/mole` V1.70.0 + 7 commits (`70e2e3e7`, merged 2026-11-08). Before that, V1.67.0 + 36 (`f72e97f7`), and v1.56.0 (`50790e8a`).
 
 ## Modifications
 

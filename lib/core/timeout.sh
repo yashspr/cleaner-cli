@@ -21,7 +21,7 @@ readonly MOLE_TIMEOUT_LOADED=1
 #   brew install coreutils
 #
 # Fallback order:
-#   1. gtimeout / timeout
+#   1. gtimeout / timeout / /usr/bin/timeout, each verified to report 124
 #   2. perl helper with dedicated process group cleanup
 #   3. shell-based fallback (last resort)
 #
@@ -29,18 +29,47 @@ readonly MOLE_TIMEOUT_LOADED=1
 #   - May not clean up all child processes
 #   - Has race conditions in edge cases
 #   - Less reliable than native timeout/perl helper
+# A `timeout` found through PATH is not always coreutils or the system one: a
+# hand-written shim that exits with the killed child's 143 instead of 124 on
+# its deadline makes every bounded scan read as Ctrl-C, so `mo clean` cancels
+# the whole run at the first slow step. A shim that rejects fractional
+# durations (exit 125) breaks every sub-second budget the same way. GNU
+# coreutils and the system binary are trusted without a probe; any other
+# candidate must run a short command successfully and time out a short sleep
+# with 124, both using run_with_timeout's -k arguments, or it is skipped.
+_mole_timeout_bin_is_compatible() {
+    local bin="$1"
+    [[ "$bin" == "/usr/bin/timeout" ]] && return 0
+    local version_text=""
+    version_text=$("$bin" --version < /dev/null 2> /dev/null) || true
+    [[ "$version_text" == *"GNU coreutils"* ]] && return 0
+    # A shim can report 124 yet reject -k, returning that status without ever
+    # running the command. Check successful execution with the actual syntax.
+    "$bin" -k 2 1 /usr/bin/true < /dev/null > /dev/null 2>&1 || return 1
+    local probe_rc=0
+    "$bin" -k 2 0.1 /bin/sleep 2 < /dev/null > /dev/null 2>&1 || probe_rc=$?
+    [[ $probe_rc -eq 124 ]]
+}
+
 if [[ -z "${MO_TIMEOUT_INITIALIZED:-}" ]]; then
     MO_TIMEOUT_BIN=""
     MO_TIMEOUT_PERL_BIN=""
-    for candidate in gtimeout timeout; do
-        if command -v "$candidate" > /dev/null 2>&1; then
-            MO_TIMEOUT_BIN="$(command -v "$candidate")"
+    for candidate in gtimeout timeout /usr/bin/timeout; do
+        candidate_path="$(command -v "$candidate" 2> /dev/null || true)"
+        [[ -n "$candidate_path" && -x "$candidate_path" ]] || continue
+        if ! _mole_timeout_bin_is_compatible "$candidate_path"; then
             if [[ "${MO_DEBUG:-0}" == "1" ]]; then
-                echo "[TIMEOUT] Using command: $MO_TIMEOUT_BIN" >&2
+                echo "[TIMEOUT] Skipping $candidate_path: it does not report a timeout as 124" >&2
             fi
-            break
+            continue
         fi
+        MO_TIMEOUT_BIN="$candidate_path"
+        if [[ "${MO_DEBUG:-0}" == "1" ]]; then
+            echo "[TIMEOUT] Using command: $MO_TIMEOUT_BIN" >&2
+        fi
+        break
     done
+    unset candidate candidate_path
 
     if command -v perl > /dev/null 2>&1; then
         MO_TIMEOUT_PERL_BIN="$(command -v perl)"
@@ -286,6 +315,8 @@ run_with_timeout() {
             $SIG{INT} = sub { $shutdown_status ||= 130; };
             $SIG{TERM} = sub { $shutdown_status ||= 143; };
             $SIG{HUP} = sub { $shutdown_status ||= 129; };
+            # Wakes the poll sleep on child exit. Not "IGNORE": that changes reaping.
+            $SIG{CHLD} = sub { };
 
             # The child is a separate process group so timeout cleanup can kill
             # its descendants. A tty only permits its foreground process group
@@ -379,12 +410,35 @@ run_with_timeout() {
         _mole_timeout_debug "[TIMEOUT] Shell fallback, ${duration}s: $*"
     fi
 
+    local interrupted=0 cmd_pid="" killer_pid=""
+    local previous_int_trap
+    previous_int_trap=$(trap -p INT || true)
+
+    # Stop the command on SIGINT while preserving the caller's trap. A background
+    # command ignores SIGINT when job control is off, so forwarding INT left it
+    # running with no deadline once the killer was gone; send TERM, as the perl
+    # backend does. The trap goes in before the command starts: a Ctrl-C between
+    # the start and a later trap took the shell's default exit and left the
+    # command running until the killer's deadline.
+    trap 'interrupted=1; if [[ -n "$cmd_pid" ]]; then kill -TERM "$cmd_pid" 2>/dev/null || true; fi; if [[ -n "$killer_pid" ]]; then _mole_cleanup_timeout_killer "$killer_pid"; fi' INT
+
+    # A Ctrl-C already pressed never starts the command: callers run rm -rf here.
+    if [[ $interrupted -eq 1 ]]; then
+        if [[ -n "$previous_int_trap" ]]; then
+            # eval: restore previous trap captured by $(trap -p INT)
+            eval "$previous_int_trap"
+        else
+            trap - INT
+        fi
+        return 130
+    fi
+
     # Start command in background. Without job control bash gives a background
     # command /dev/null as stdin, so pass the caller's stdin on explicitly, as
     # the timeout binary and perl backends do: callers feed osascript and awk
     # through a here-document.
     "$@" <&0 &
-    local cmd_pid=$!
+    cmd_pid=$!
 
     # Start timeout killer in background.
     # Redirect all FDs to /dev/null so orphaned child processes (e.g. sleep $duration)
@@ -409,24 +463,19 @@ run_with_timeout() {
             fi
         fi
     ) < /dev/null > /dev/null 2>&1 &
-    local killer_pid=$!
+    killer_pid=$!
 
-    local interrupted=0
-    local previous_int_trap
-    previous_int_trap=$(trap -p INT || true)
+    # An interrupt that landed before both PIDs were known reached neither.
+    if [[ $interrupted -eq 1 ]]; then
+        kill -TERM "$cmd_pid" 2> /dev/null || true
+        _mole_cleanup_timeout_killer "$killer_pid"
+    fi
 
-    # Stop the command on SIGINT while preserving the caller's trap. A background
-    # command ignores SIGINT when job control is off, so forwarding INT left it
-    # running with no deadline once the killer was gone; send TERM, as the perl
-    # backend does.
-    trap 'interrupted=1; kill -TERM "$cmd_pid" 2>/dev/null || true; _mole_cleanup_timeout_killer "$killer_pid"' INT
-
-    # Wait for command to complete
+    # Wait for command to complete. `|| exit_code=$?` keeps a failing status
+    # from tripping errexit without toggling it, so a caller that runs with
+    # errexit off gets it back off.
     local exit_code=0
-    set +e
-    wait "$cmd_pid" 2> /dev/null
-    exit_code=$?
-    set -e
+    wait "$cmd_pid" 2> /dev/null || exit_code=$?
 
     _mole_cleanup_timeout_killer "$killer_pid"
 
