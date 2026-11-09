@@ -19,6 +19,7 @@ Upstream base: `tw93/mole` V1.70.0 + 7 commits (`70e2e3e7`, merged 2026-11-08). 
 | 2026-09-28 | Repository renamed to `yashspr/cleaner-cli`; bundle `BUILD-INFO` source URL updated; `pristine` entrypoint's default dialog title is now "cleaner-cli" |
 | 2026-09-29 | Relocatable data directories: `PRISTINE_CONFIG_DIR`, `PRISTINE_CACHE_DIR`, `PRISTINE_LOG_DIR` replace `~/.config/mole`, `~/.cache/mole`, `~/Library/Logs/mole` (shell and Go); `PRISTINE_PROTECT_PATHS` keeps folders out of cleanup (`lib/pristine/paths.sh`) |
 | 2026-11-02 | `purge --only-from`: a recent artifact listed by exact path is removed like a row ticked in upstream's menu (`pristine_purge_picked_recent`); uncertain activity and cloud-synced rows stay refused, and every protection check still runs |
+| 2026-11-09 | `analyze --json` overview: the User Library row gets a 3-minute `du` bound instead of 30 s (it came back as 0 when slower), still one traversal, and a Library `du` that finished is stored even when a cloud folder in it can't be read. `analyze --refresh` measures again instead of reusing stored sizes (`cmd/analyze/pristine_analyze.go`) |
 
 ## Releases
 
@@ -35,6 +36,7 @@ must be pushed so its corresponding source is public (GPL-3.0 §6).
 | `pristine-v0.3.0` | tw93/mole v1.56.0 (`50790e8a`) | relocatable data directories (`PRISTINE_CONFIG_DIR`, `PRISTINE_CACHE_DIR`, `PRISTINE_LOG_DIR`) and `PRISTINE_PROTECT_PATHS` |
 | `pristine-v0.4.0` | tw93/mole V1.67.0 + 36 (`f72e97f7`) | upstream merge; EOF no longer confirms, so installer reads an empty stdin and uninstall uses `PRISTINE_UNINSTALL_CONFIRMED` |
 | `pristine-v0.4.1` | tw93/mole V1.67.0 + 36 (`f72e97f7`) | `purge --only-from` removes a listed recent artifact |
+| `pristine-v0.5.0` | tw93/mole V1.70.0 + 7 (`70e2e3e7`) | upstream merge; `analyze --json`: the User Library row's 3-minute bound and storage, `--refresh` |
 
 Cutting a release:
 
@@ -81,6 +83,8 @@ Rule: **fork logic lives in fork-only files; shared files only get hook lines.**
 | `lib/clean/project.sh` | 1 line in the non-interactive selection of `clean_project_artifacts` | a recent row listed in `--only-from` is selected (`pristine_purge_picked_recent`) |
 | `lib/uninstall/batch.sh` | 1 line in `_batch_preview_and_confirm` | `--json` with `--yes` or `--dry-run` confirms the batch; upstream otherwise needs a terminal |
 | `mole`, `bin/*.sh`, `lib/*/*.sh`, `cmd/analyze/cache.go`, `cmd/analyze/oplog.go`, `cmd/status/prefs.go` | each hard-coded `~/.config/mole`, `~/.cache/mole`, `~/Library/Logs/mole` | `${PRISTINE_<KIND>_DIR:-<upstream path>}`; `tests/pristine_data_dirs.bats` fails if a merge adds an unrouted one |
+| `cmd/analyze/json.go` | 3 lines: the JSON directory scan, the overview's stored-size lookup and its row measurement call `pristineScanDirectoryForJSON`, `pristineCachedOverviewMeasurement`, `pristineMeasureOverviewSize` | `--refresh`; the User Library row's longer bound and storage |
+| `cmd/analyze/scanner.go` | 2 lines: `context.WithTimeout(ctx, duTimeout)` → `pristineDuTimeout(ctx)` in `measureOverviewSizeWithPublication` and `runDuSize` | the bound reaches `du`; `TestPristineDuBoundsInScannerAreHooked` fails if a merge adds an unrouted one |
 | `.gitignore` | `/dist/` | ignore bundle output |
 
 `bin/uninstall.sh` sources its fork file relative to `BASH_SOURCE`, not `SCRIPT_DIR`: the
@@ -95,6 +99,7 @@ upstream libraries it loads first reassign `SCRIPT_DIR`.
 | installer | `perform_installers`, `show_installer_menu` (replaced), `record_installer_delete_failure` | `INSTALLER_PATHS`, `INSTALLER_SIZES`, `INSTALLER_SOURCES`, `MOLE_SELECTION_RESULT`, `total_deleted`, `total_size_freed_kb`, `total_delete_failed`, `INSTALLER_EXIT_*`; `--json` feeds one newline on stdin as the final confirmation's Enter (upstream now reads EOF there as cancel) |
 | purge | `start_purge`, `perform_purge`, `mole_purge_is_cloud_synced_path`, `log_operation_session_end`, `is_path_whitelisted` (`--only-from`) | per-item locals of `clean_project_artifacts`: `item`, `size_kb`, `size_unknown`, `is_recent`, `activity_state`, `project_root`, `artifact_type`; `PURGE_SEARCH_PATHS`, `PURGE_RUN_OUTCOME`, `PURGE_UNKNOWN_SIZE_COUNT` |
 | optimize | `execute_optimization`, `optimize_outcomes_reset`, `show_system_health`, `show_optimization_summary` | `MOLE_OPTIMIZE_ACTIONS`, `MOLE_OPTIMIZE_HEALTH_NAMES`, `MOLE_OPTIMIZE_RESULT_*`, `MOLE_OPTIMIZE_OUTCOME_*`, `MOLE_OPTIMIZE_SUDO_AVAILABLE`, `OPTIMIZE_*` stats |
+| analyze (Go) | none wrapped; calls `measureOverviewSize`, `loadOverviewCachedMeasurement`, `storeOverviewMeasurement`, `overviewMeasurementStorable`, `scanPathConcurrentAllEntries`, `scanPathConcurrentWithLimiter`, `scanCacheBypass`, `newScanPublication` | `duTimeout`, `scanState` values; the compiler catches a rename |
 | uninstall | `uninstall_list_apps` and `match_apps_by_name` (replaced), `_batch_scan_app_details`, `_batch_render_summary`, `_mole_delete_log` | `apps_data`, `selected_apps`, `scan_applications`, `load_applications`; batch locals `app_details` (field order), `blocked_apps`, `manual_removal_apps`, `success_count`, `failed_count`, `total_size_freed`, `failed_items`, `running_at_uninstall_apps`; the batch confirmation in `_batch_preview_and_confirm` accepts only a terminal, so one hook line skips it when `PRISTINE_UNINSTALL_CONFIRMED` is set (`--json` with `--yes` or `--dry-run`) |
 
 ### Branches
@@ -147,6 +152,10 @@ Always run through the **`pristine`** entrypoint. It is the same CLI as `mo`/`mo
   a data dir sits in a folder cleanup sweeps (`~/Library/Caches/<app>/…`, `~/Library/Logs/<app>/…`).
   Mole's own install management (`update`, `remove`) still uses the upstream folders.
 - `status --json`, `analyze --json`, `history --json` are upstream's own formats and get no `end`.
+- `analyze --json --refresh [PATH]` measures again instead of reusing stored sizes: the overview
+  skips its stored row sizes (kept up to 7 days with no change check), a directory scan skips the
+  per-folder cache. New results are stored as usual. In the overview, the User Library row's
+  `du` may take up to 3 minutes (upstream: 30 s, then size 0 and `"scan_status":"unavailable"`).
 
 ### Common flags
 
