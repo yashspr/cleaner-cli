@@ -82,7 +82,7 @@ pristine_installer_select() {
         [[ "$selected" == "true" ]] && picked+=("$i")
 
         ext="${path##*.}"
-        ext=$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')
+        ext=$(printf '%s' "$ext" | LC_ALL=C tr '[:upper:]' '[:lower:]')
         pristine_json_quote "$path"
         j_path="$PRISTINE_JQ"
         pristine_json_quote "${INSTALLER_SOURCES[$i]:-}"
