@@ -919,7 +919,7 @@ func measureOverviewSizeWithPublication(ctx context.Context, path string, public
 		excludePath = filepath.Join(home, "Library")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, duTimeout)
+	ctx, cancel := context.WithTimeout(ctx, pristineDuTimeout(ctx)) // pristine-fork
 	defer cancel()
 	ignoreNames := overviewIgnoreNamesForPath(path)
 	size, err := getDirectorySizeFromDuWithExcludeAndIgnores(ctx, path, excludePath, ignoreNames)
@@ -1012,7 +1012,7 @@ func getDirectorySizeFromDuWithExcludeAndIgnores(ctx context.Context, path strin
 			return 0, err
 		}
 
-		ctx, cancel := context.WithTimeout(ctx, duTimeout)
+		ctx, cancel := context.WithTimeout(ctx, pristineDuTimeout(ctx)) // pristine-fork
 		defer cancel()
 
 		args := []string{"-skPx"}

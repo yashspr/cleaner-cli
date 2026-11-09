@@ -62,7 +62,7 @@ func performDirectoryScanForJSON(path string) jsonOutput {
 	currentPath := &atomic.Value{}
 	currentPath.Store("")
 
-	result, err := scanPathConcurrentAllEntries(context.Background(), path, &filesScanned, &dirsScanned, &bytesScanned, currentPath)
+	result, err := pristineScanDirectoryForJSON(context.Background(), path, &filesScanned, &dirsScanned, &bytesScanned, currentPath) // pristine-fork
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to scan directory: %v\n", err)
 		os.Exit(1)
@@ -138,13 +138,13 @@ func measureOverviewEntriesForJSON(overviewEntries []dirEntry, insightPaths map[
 				err  error
 			)
 
-			if cached, state, cacheErr := loadOverviewCachedMeasurement(item.Path); cacheErr == nil && cached > 0 {
+			if cached, state, cacheErr := pristineCachedOverviewMeasurement(item.Path); cacheErr == nil && cached > 0 { // pristine-fork
 				size, item.State = cached, state
 			} else {
 				if insightPaths[item.Path] {
 					size, err = measureInsightSize(context.Background(), item.Path)
 				} else {
-					size, err = measureOverviewSize(context.Background(), item.Path)
+					size, err = pristineMeasureOverviewSize(context.Background(), item.Path) // pristine-fork
 				}
 				item.State = measurementState(size, err)
 			}
