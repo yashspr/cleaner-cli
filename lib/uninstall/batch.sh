@@ -1817,7 +1817,7 @@ uninstall_strip_version_suffix() {
 # find_app_files; do not call it under nocasematch.
 _uninstall_strip_version_suffix_into() {
     local _strip_value="$2"
-    local version_suffixes="Nightly|Beta|Alpha|Dev|Canary|Preview|Insider|Edge|Stable|Release|RC|LTS"
+    local version_suffixes="Nightly|Beta|Alpha|Dev|Canary|Preview|Insider|Stable|Release|RC|LTS"
     version_suffixes+="|Developer Edition|Technology Preview"
     if [[ "$_strip_value" =~ ^(.+)[[:space:]]+(${version_suffixes})$ ]]; then
         _strip_value="${BASH_REMATCH[1]}"

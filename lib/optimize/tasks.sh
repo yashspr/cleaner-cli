@@ -1472,8 +1472,9 @@ opt_notification_cleanup() {
     if [[ "${MOLE_DRY_RUN:-0}" != "1" ]]; then
         if command -v sqlite3 > /dev/null 2>&1; then
             local sql_ok=0
+            # delivered_date counts seconds from 2001-01-01, not 1970. # pristine-fork
             sqlite3 "$nc_db" \
-                "DELETE FROM record WHERE delivered_date < strftime('%s','now','-30 days'); VACUUM;" \
+                "DELETE FROM record WHERE delivered_date < (strftime('%s','now','-30 days') - strftime('%s','2001-01-01')); VACUUM;" \
                 2> /dev/null || sql_ok=$?
             if [[ $sql_ok -eq 0 ]]; then
                 # Let launchd signal its own service instance, never every process with this name.

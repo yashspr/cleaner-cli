@@ -154,6 +154,7 @@ clean_tool_cache() {
     else
         echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} $description · would clean"
         note_activity
+        pristine_tool_row "$cache_path" "$description"  # pristine-fork
     fi
     return 0
 }
@@ -338,6 +339,7 @@ clean_github_cli_cache() {
     if [[ "$DRY_RUN" == "true" ]]; then
         echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} GitHub CLI cache · would clean"
         note_activity
+        pristine_tool_row "$cache_path" "GitHub CLI cache"  # pristine-fork
         return 0
     fi
 
@@ -1172,6 +1174,7 @@ clean_go_cache_root() {
     if [[ $command_status -eq 0 ]]; then
         if [[ "$DRY_RUN" == "true" ]]; then
             echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} $display_name · would clean"
+            pristine_tool_row "$cache_root" "$display_name"  # pristine-fork
         elif ((freed_kb > 0)); then
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} $display_name · $(colorize_human_size "$(bytes_to_human_kb "$freed_kb")")"
             mole_add_cleaned_row 0 "$freed_kb"
@@ -1282,6 +1285,7 @@ clean_dev_mise() {
         else
             echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} mise cache · would clean"
             note_activity
+            pristine_tool_row "$mise_cache_path" "mise cache"  # pristine-fork
         fi
         # The owner command is authoritative, including failure and timeout.
         # Do not bypass its result with direct deletion of the same root.
@@ -1622,6 +1626,7 @@ clean_docker_unused_data() {
         else
             echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} $description · would prune, build cache unused for 7 days"
         fi
+        pristine_tool_row "$whitelist_path" "$description" unknown  # pristine-fork
         note_activity
         return 0
     fi
