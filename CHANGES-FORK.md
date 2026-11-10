@@ -20,6 +20,10 @@ Upstream base: `tw93/mole` V1.70.0 + 7 commits (`70e2e3e7`, merged 2026-11-08). 
 | 2026-09-29 | Relocatable data directories: `PRISTINE_CONFIG_DIR`, `PRISTINE_CACHE_DIR`, `PRISTINE_LOG_DIR` replace `~/.config/mole`, `~/.cache/mole`, `~/Library/Logs/mole` (shell and Go); `PRISTINE_PROTECT_PATHS` keeps folders out of cleanup (`lib/pristine/paths.sh`) |
 | 2026-11-02 | `purge --only-from`: a recent artifact listed by exact path is removed like a row ticked in upstream's menu (`pristine_purge_picked_recent`); uncertain activity and cloud-synced rows stay refused, and every protection check still runs |
 | 2026-11-09 | `analyze --json` overview: the User Library row gets a 3-minute `du` bound instead of 30 s (it came back as 0 when slower), still one traversal, and a Library `du` that finished is stored even when a cloud folder in it can't be read. `analyze --refresh` measures again instead of reusing stored sizes (`cmd/analyze/pristine_analyze.go`) |
+| 2026-11-10 | Protected folders (the data dirs and `PRISTINE_PROTECT_PATHS`) are matched without case (`pristine_path_protected`): uninstall builds some paths from the app's name, so on a case-insensitive volume `…/Application Support/Obsidian` is the folder protected as `…/obsidian`, and it was removed |
+| 2026-11-10 | Fix: "Edge" is no longer a channel name like "Beta" (`find_app_files`, `_mole_app_family_suffixes`, `_uninstall_strip_version_suffix_into`), so "Microsoft Edge" isn't shortened to "Microsoft" and uninstalling it no longer claims Microsoft's shared folders (Office, Teams, AutoUpdate). A shortened name that is a company's shared folder name is never used either (`pristine_shared_vendor_name`). Upstream bug |
+| 2026-11-10 | Fix: Notification Center cleanup (`opt_notification_cleanup`) compared `delivered_date`, seconds from 2001, with a Unix-time cutoff, so every notification counted as older than 30 days and all were deleted. The cutoff now subtracts `strftime('%s','2001-01-01')`, as the CoreDuet task does. Upstream bug |
+| 2026-11-10 | `clean --json --dry-run` lists a tool's own cleanup as an `item` row: `brew cleanup` (keyed by `<prefix>/Cellar`, sized from its dry run without the cache files the Homebrew cache row already lists), `npm cache clean`, pip, uv, Corepack, pnpm, bun, mise, conda, Nix, Go, GitHub CLI, Docker prunes and `tart prune` (each keyed by the folder its step already checks against the whitelist). Upstream shows these only as a "would clean" line, so they couldn't be seen or turned off; excluding the row's path skips the step through that same check, and `brew cleanup` gets a check on its Cellar key (`pristine_tool_row`, `pristine_homebrew_row`, `pristine_homebrew_kept`) |
 
 ## Releases
 
@@ -37,6 +41,7 @@ must be pushed so its corresponding source is public (GPL-3.0 §6).
 | `pristine-v0.4.0` | tw93/mole V1.67.0 + 36 (`f72e97f7`) | upstream merge; EOF no longer confirms, so installer reads an empty stdin and uninstall uses `PRISTINE_UNINSTALL_CONFIRMED` |
 | `pristine-v0.4.1` | tw93/mole V1.67.0 + 36 (`f72e97f7`) | `purge --only-from` removes a listed recent artifact |
 | `pristine-v0.5.0` | tw93/mole V1.70.0 + 7 (`70e2e3e7`) | upstream merge; `analyze --json`: the User Library row's 3-minute bound and storage, `--refresh` |
+| `pristine-v0.5.1` | tw93/mole V1.70.0 + 7 (`70e2e3e7`) | protected folders match without case; uninstalling Edge keeps to Edge's folders; notification cleanup keeps the last 30 days; `clean --json` lists each tool's own cleanup as a row that can be excluded |
 
 Cutting a release:
 
@@ -80,6 +85,10 @@ Rule: **fork logic lives in fork-only files; shared files only get hook lines.**
 | `lib/core/sudo.sh` | 3 lines at the `osascript` dialog | title from `PRISTINE_DIALOG_TITLE` (sanitized; default "Mole", `pristine` sets "cleaner-cli") |
 | `lib/core/base.sh` | 1 `source .../lib/pristine/paths.sh` line | load the data-dir overrides for every command |
 | `lib/core/app_protection.sh` | 1 line in `should_protect_path` | data dirs and `PRISTINE_PROTECT_PATHS` are never cleaned |
+| `lib/core/app_protection.sh` | 1 condition in `find_app_files`'s base-name block | a shortened name that is a company's shared folder name claims nothing (`pristine_shared_vendor_name`) |
+| `lib/clean/dev.sh` | 1 line in each dry-run branch of `clean_tool_cache`, `clean_github_cli_cache`, `clean_go_cache_root`, `clean_dev_mise`, `clean_docker_unused_data` | the step is a preview row (`pristine_tool_row`) |
+| `lib/clean/brew.sh` | 1 line after the dry-run cleanup preview, 1 line after `brew_cleanup_ran_recently` in the real run | `brew cleanup` is a preview row keyed by the Cellar (`pristine_homebrew_row`) and doesn't run when that row is excluded (`pristine_homebrew_kept`) |
+| `lib/clean/user.sh` | 1 line in `clean_tart_caches`'s dry-run branch | `tart prune` is a preview row |
 | `lib/clean/project.sh` | 1 line in the non-interactive selection of `clean_project_artifacts` | a recent row listed in `--only-from` is selected (`pristine_purge_picked_recent`) |
 | `lib/uninstall/batch.sh` | 1 line in `_batch_preview_and_confirm` | `--json` with `--yes` or `--dry-run` confirms the batch; upstream otherwise needs a terminal |
 | `mole`, `bin/*.sh`, `lib/*/*.sh`, `cmd/analyze/cache.go`, `cmd/analyze/oplog.go`, `cmd/status/prefs.go` | each hard-coded `~/.config/mole`, `~/.cache/mole`, `~/Library/Logs/mole` | `${PRISTINE_<KIND>_DIR:-<upstream path>}`; `tests/pristine_data_dirs.bats` fails if a merge adds an unrouted one |
@@ -150,6 +159,8 @@ Always run through the **`pristine`** entrypoint. It is the same CLI as `mo`/`mo
   Cleanup never removes these directories or anything in them. `PRISTINE_PROTECT_PATHS`
   (colon-separated absolute paths) protects more folders the same way; list the parent too when
   a data dir sits in a folder cleanup sweeps (`~/Library/Caches/<app>/…`, `~/Library/Logs/<app>/…`).
+  Paths are matched without case; Unicode forms (NFC/NFD) are compared as given, so a caller
+  that can't be sure of the form lists both.
   Mole's own install management (`update`, `remove`) still uses the upstream folders.
 - `status --json`, `analyze --json`, `history --json` are upstream's own formats and get no `end`.
 - `analyze --json --refresh [PATH]` measures again instead of reusing stored sizes: the overview
@@ -193,7 +204,7 @@ Every stream starts with `start` (`schema_version`, `command`, …) and ends wit
 | clean, installer, purge, optimize, uninstall | `operation` | `action` (`REMOVED` / `TRASHED` / `SKIPPED` / `FAILED` / `TASK_FAILED` / …), `path`, `detail` (human size or reason), `section` (clean, optimize) |
 | clean | `start` | `dry_run`, `system_clean`, `external_volume`, `excluded_paths` |
 | clean | `section` | `name` |
-| clean | `item` | dry run: `path`, `section`, `size_kb` (int/null), `size_known`, `item_count`, `covered_by` (string/null) |
+| clean | `item` | dry run: `path`, `section`, `size_kb` (int/null), `size_known`, `item_count`, `covered_by` (string/null). A tool's own cleanup is a row too, keyed by the folder it works in (`/opt/homebrew/Cellar`, `~/.npm`, `/nix/store`…): never a path removed as such, only one to exclude; `size_kb` is null when the tool can't say ahead |
 | clean | `summary` | `dry_run`, `status` (`complete` / `cancelled` / `interrupted` / `incomplete`), `exit_code`, `size_kb`, `size_partial`, `items`, `categories`, `system_clean`, `permission_denied`, `removal_timeouts`, `free_space_kb`, `preview_file` |
 | installer | `start` | `dry_run`, `excluded_paths`, `only_paths` |
 | installer | `item` | `path`, `kind` (`dmg` / `pkg` / `mpkg` / `iso` / `xip` / `zip`), `source`, `size_bytes`, `size_kb`, `selected` |

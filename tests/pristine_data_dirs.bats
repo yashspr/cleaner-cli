@@ -128,6 +128,35 @@ EOF
     [[ "${lines[4]}" == "$APP_LOGS/engine/deletions.log" ]] || return 1
 }
 
+@test "a protected folder is matched without case, and nothing beside it is" {
+    # Uninstall builds ".../Application Support/<App Name>" from the app's name;
+    # on a case-insensitive volume that is the folder the user protected under
+    # the name on disk.
+    local kept="$HOME/Library/Application Support/obsidian"
+    # shellcheck disable=SC2016  # Expanded by the child bash.
+    run --separate-stderr env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" PRISTINE_PROTECT_PATHS="$kept" \
+        /bin/bash --noprofile --norc -c '
+            source "$PROJECT_ROOT/lib/core/common.sh"
+            base="$HOME/Library/Application Support"
+            for p in "$base/obsidian" "$base/Obsidian" "$base/OBSIDIAN/" "$base/Obsidian/plugins/x" \
+                "$base/Obsidian2" "$base/Obsid" "$base"; do
+                if should_protect_path "$p"; then echo "kept $p"; else echo "free $p"; fi
+            done
+            # The caller'"'"'s own setting is left as it was.
+            shopt -q nocasematch && echo "nocasematch on" || echo "nocasematch off"'
+
+    [ "$status" -eq 0 ] || return 1
+    local base="$HOME/Library/Application Support"
+    [[ "${lines[0]}" == "kept $base/obsidian" ]] || return 1
+    [[ "${lines[1]}" == "kept $base/Obsidian" ]] || return 1
+    [[ "${lines[2]}" == "kept $base/OBSIDIAN/" ]] || return 1
+    [[ "${lines[3]}" == "kept $base/Obsidian/plugins/x" ]] || return 1
+    [[ "${lines[4]}" == "free $base/Obsidian2" ]] || return 1
+    [[ "${lines[5]}" == "free $base/Obsid" ]] || return 1
+    [[ "${lines[6]}" == "free $base" ]] || return 1
+    [[ "${lines[7]}" == "nocasematch off" ]] || return 1
+}
+
 @test "an invalid data dir is ignored and the upstream default applies" {
     # shellcheck disable=SC2016  # Expanded by the child bash.
     run --separate-stderr env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" \

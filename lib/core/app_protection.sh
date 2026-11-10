@@ -1282,7 +1282,7 @@ _mole_app_family_sibling_installed() {
 }
 
 # The base name an app's family shares: "Zed Nightly" and "Zed" are both "Zed".
-_mole_app_family_suffixes="Nightly|Beta|Alpha|Dev|Canary|Preview|Insider|Edge|Stable|Release|RC|LTS"
+_mole_app_family_suffixes="Nightly|Beta|Alpha|Dev|Canary|Preview|Insider|Stable|Release|RC|LTS"
 _mole_app_family_suffixes+="|Developer Edition|Technology Preview"
 
 # Print the lowercase name leaves ("zed", "zed-nightly"...) of the family that
@@ -1348,7 +1348,7 @@ find_app_files() {
     # Extract base name by removing common version/channel suffixes
     # "Zed Nightly" -> "Zed", "Firefox Developer Edition" -> "Firefox"
     local base_name="$app_name"
-    local version_suffixes="Nightly|Beta|Alpha|Dev|Canary|Preview|Insider|Edge|Stable|Release|RC|LTS"
+    local version_suffixes="Nightly|Beta|Alpha|Dev|Canary|Preview|Insider|Stable|Release|RC|LTS"
     version_suffixes+="|Developer Edition|Technology Preview"
     if [[ "$app_name" =~ ^(.+)[[:space:]]+(${version_suffixes})$ ]]; then
         base_name="${BASH_REMATCH[1]}"
@@ -1530,7 +1530,7 @@ find_app_files() {
     fi
 
     # Add base name variants for versioned apps (e.g., "Zed Nightly" -> check for "zed")
-    if [[ "$base_name" != "$app_name" && ${#base_name} -gt 2 ]]; then
+    if [[ "$base_name" != "$app_name" && ${#base_name} -gt 2 ]] && ! pristine_shared_vendor_name "$base_name"; then # pristine-fork
         user_patterns+=(
             "$HOME/Library/Application Support/$base_name"
             "$HOME/Library/Caches/$base_name"

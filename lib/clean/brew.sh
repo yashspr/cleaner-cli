@@ -319,6 +319,7 @@ clean_homebrew() {
                     echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Homebrew · would cleanup"
                     note_activity
                 fi
+                pristine_homebrew_row "$dry_run_cleanup_exit" "$dry_run_cleanup_file"  # pristine-fork
                 # Autoremove sits after the window check in the real run too.
                 local dry_run_autoremove_file
                 dry_run_autoremove_file=$(create_temp_file)
@@ -343,6 +344,7 @@ clean_homebrew() {
     fi
     # Skip if cleaned recently to avoid repeated heavy operations.
     brew_cleanup_ran_recently "$brew_cache_file" && return 0
+    pristine_homebrew_kept && return 0  # pristine-fork
     # No size gate on ~/Library/Caches/Homebrew: most of what `brew cleanup`
     # frees is old formula versions in the Cellar, which that cache does not
     # hold. A cache someone already emptied (Mole's Mac app clears downloads)

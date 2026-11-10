@@ -2457,6 +2457,7 @@ clean_tart_caches() {
         echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Tart caches · would prune items older than ${MOLE_ORPHAN_AGE_DAYS} days (${cache_size_human})"
         echo -e "    ${GRAY}tart prune --entries caches --older-than ${MOLE_ORPHAN_AGE_DAYS}${NC}"
         note_activity
+        pristine_tool_row "$cache_root" "Tart caches" unknown  # pristine-fork
         return 0
     fi
 
